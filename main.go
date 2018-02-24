@@ -7,10 +7,16 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"flag"
+	r "gopkg.in/gorethink/gorethink.v4"
+	"io/ioutil"
+
+	h "github.com/aleks1001/kremlin/src"
+	"encoding/json"
 )
 
 var (
 	router    *mux.Router
+	session   *r.Session
 )
 
 var routes = Routes{
@@ -26,6 +32,12 @@ var routes = Routes{
 		"/",
 		getAppStatus,
 	},
+	Route{
+		"Hotel",
+		"POST",
+		"/hotel",
+		postHotel,
+	},
 }
 
 type Route struct {
@@ -38,12 +50,18 @@ type Route struct {
 type Routes []Route
 
 func main() {
+	var err error
+	session, err = r.Connect(r.ConnectOpts{Address: "localhost:28015"})
+	if err != nil {
+		log.Fatal("Database connection failed:", err)
+	}
+
 	ipPtr := flag.String("ip", "0.0.0.0", "localhost")
 	portPtr := flag.String("port", "3232", "port to listen on")
 	server := newServer(fmt.Sprintf("%v:%v", *ipPtr, *portPtr))
 	msg := fmt.Sprintf("Starting server on %s:%s", *ipPtr, *portPtr)
 	log.Println(msg)
-	err := server.ListenAndServe()
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatalln("Error: %v", err)
 	}
@@ -73,4 +91,25 @@ func newServer(addr string) *http.Server {
 
 func getAppStatus(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
+}
+
+func postHotel(w http.ResponseWriter, req *http.Request) {
+	body, err := ioutil.ReadAll(req.Body)
+	defer req.Body.Close()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Fatal(err)
+		return
+	}
+	var hotels h.Hotels
+	json.Unmarshal(body, &hotels)
+
+	fmt.Println(len(hotels.Hotels))
+
+	for _, hotel := range hotels.Hotels {
+		_, err = r.DB("test").Table("hotel").Insert(hotel).RunWrite(session)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(body)
 }
